@@ -1,3 +1,7 @@
+# quartier
+
+An app that connects a neighborhood, creating a place where good deeds can be rewarded, issues discussed and votes be held.
+
 # Secret Contracts Starter Pack
 
 This is a template to build secret contracts in Rust to run in
@@ -63,4 +67,3 @@ if you have `make` installed (very recommended. at least check them out).
 
 Please replace this README file with information about your specific project. You can keep
 the `Developing.md` and `Publishing.md` files as useful referenced, but please set some
-proper description in the README.
