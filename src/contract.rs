@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 use crate::msg::{InitMsg, HandleMsg, QueryMsg};
 use crate::state::{Tally};
 
+// Disclaimer: The basic structure is taken from: https://github.com/enigmampc/SecretSimpleVote
+
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     _env: Env,
