@@ -10,7 +10,19 @@ use crate::msg::{InitMsg, HandleMsg, QueryMsg};
 use crate::state::{Tally};
 
 // Disclaimer: The basic structure is taken from: https://github.com/enigmampc/SecretSimpleVote
+// and is also inspired by https://github.com/baedrik/SCRT-sealed-bid-auction/blob/master/src/contract.rs
 
+
+////////////////////////////////////// Init ///////////////////////////////////////
+/// Returns InitResult
+///
+/// Initializes the vote.
+///
+/// # Arguments
+///
+/// * `deps` - mutable reference to Extern containing all the contract's external dependencies
+/// * `env` - Env of contract's environment
+/// * `msg` - InitMsg passed in with the instantiation message
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     _env: Env,
@@ -23,12 +35,26 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     Ok(InitResponse::default())
 }
 
+
+///////////////////////////////////// Handle //////////////////////////////////////
+/// Returns HandleResult
+///
+/// # Arguments
+///
+/// * `deps` - mutable reference to Extern containing all the contract's external dependencies
+/// * `env` - Env of contract's environment
+/// * `msg` - HandleMsg passed in with the execute message
 pub fn handle<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     _env: Env,
     msg: HandleMsg,
 ) -> HandleResult {
     let mut tally: Tally = deserialize(&deps.storage.get(b"tally").unwrap())?;
+
+    let voter = &env.message.sender
+    let voter_raw = &deps.api.canonical_address(bidder)?;
+
+    // if tally.voters.contains(&voter_raw.as_slice().to_vec())
 
     if msg.yes {
         tally.yes += 1;

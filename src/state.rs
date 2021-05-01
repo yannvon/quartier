@@ -7,6 +7,10 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct Tally {
+    // Number of votes in favor
     pub yes: u64,
+    // Number of votes against
     pub no: u64,
+    // List of addresses of voters
+    pub voters: HashSet<Vec<u8>>
 }
