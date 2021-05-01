@@ -19,3 +19,9 @@ pub enum QueryMsg {
     GetPoll {},
     GetTally {},
 }
+
+// We define a custom struct for each query response
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct TallyResponse {
+    pub count: i32,
+}
