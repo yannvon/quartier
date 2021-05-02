@@ -8,10 +8,22 @@ use serde::{Deserialize, Serialize};
 
 use crate::msg::{InitMsg, HandleMsg, QueryMsg};
 use crate::state::{Tally};
+use std::collections::HashSet;
+
 
 // Disclaimer: The basic structure is taken from: https://github.com/enigmampc/SecretSimpleVote
 // and is also inspired by https://github.com/baedrik/SCRT-sealed-bid-auction/blob/master/src/contract.rs
 
+
+/// storage key for vote state
+/// FIXME why do we distinguis poll and vote in existing code ?
+pub const VOTE_KEY: &[u8] = b"vote";
+pub const POLL_KEY: &[u8] = b"poll";
+
+/// pad handle responses and log attributes to blocks of 256 bytes to prevent leaking info based on
+/// response size
+// TODO
+pub const BLOCK_SIZE: usize = 256;
 
 ////////////////////////////////////// Init ///////////////////////////////////////
 /// Returns InitResult
@@ -30,7 +42,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 ) -> InitResult {
     deps.storage.set(b"poll", &serialize(&msg.poll)?);
 
-    let new_tally = Tally { yes: 0, no: 0 };
+    let new_tally = Tally { yes: 0, no: 0, voters: HashSet::new()};
     deps.storage.set(b"tally", &serialize(&new_tally)?);
     Ok(InitResponse::default())
 }
@@ -46,21 +58,28 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 /// * `msg` - HandleMsg passed in with the execute message
 pub fn handle<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
-    _env: Env,
+    env: Env,
     msg: HandleMsg,
 ) -> HandleResult {
     let mut tally: Tally = deserialize(&deps.storage.get(b"tally").unwrap())?;
 
-    let voter = &env.message.sender
-    let voter_raw = &deps.api.canonical_address(bidder)?;
+    let voter = env.message.sender;
+    let voter_raw = &deps.api.canonical_address(&voter)?;
 
-    // if tally.voters.contains(&voter_raw.as_slice().to_vec())
+    if tally.voters.contains(&voter_raw.as_slice().to_vec()) {
+        // FIXME is this the correct way of handling an error ?
+        return Err(StdError::Unauthorized{ backtrace: None })
+    }
 
+    // Increase tally
     if msg.yes {
         tally.yes += 1;
     } else {
         tally.no += 1;
     }
+
+    // Add voter to list of voters to prevent double voting
+    tally.voters.insert(voter_raw.as_slice().to_vec());
 
     deps.storage.set(b"tally", &serialize(&tally)?);
     Ok(HandleResponse::default())
@@ -169,8 +188,6 @@ mod tests {
 
     #[test]
     fn no_double_vote() {
-        // TODO
-
         let mut deps = mock_dependencies(20, &coins(2, "token")); // amount, denom
 
         let msg = InitMsg { poll : String::from("Is the sky blue?") };
@@ -182,7 +199,7 @@ mod tests {
         let msg = HandleMsg{ yes : true};
         let _res = handle(&mut deps, env, msg).unwrap();
 
-        // should not be able to vote twice
+        // should not be able to vote twice though
         let env = mock_env("anyone", &coins(2, "token"));
         let msg = HandleMsg{ yes : true};
         let _res = handle(&mut deps, env, msg);
@@ -191,7 +208,7 @@ mod tests {
                 _ => panic!("Must disallow double vote"),
             }
 
-        // should increase yes tally by 1
+        // should increase yes tally by 1 only
         let res = query(&deps, QueryMsg::GetTally {}).unwrap();
         let value: Tally = from_binary(&res).unwrap();
         assert_eq!(1, value.yes);

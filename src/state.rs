@@ -1,5 +1,6 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 //use cosmwasm_std::{CanonicalAddr, Storage};
 //use cosmwasm_storage::{singleton, singleton_read, ReadonlySingleton, Singleton};
@@ -12,5 +13,5 @@ pub struct Tally {
     // Number of votes against
     pub no: u64,
     // List of addresses of voters
-    pub voters: HashSet<Vec<u8>>
+    pub voters: HashSet<Vec<u8>>,
 }
