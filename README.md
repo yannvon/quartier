@@ -37,11 +37,19 @@ The typical risks pertaining to these factors are the following:
 Additionally this voting scheme can explore many desirable properties that are hard to implement
  in other technologies, some of these properties are:
 
-1. **Individual verifiability**: An individual has proof that their vote has been correctlytaken intoaccount-protects against a man-in-the-browser that changes outgoing votes and incoming confirmation (you think you voted ‘yes’ but you voted‘no’
-
+1. **Individual verifiability**: An individual has proof that their vote has been correctly taken into account-protects against a man-in-the-browser that changes outgoing votes and incoming confirmation (you think you voted ‘yes’ but you voted ‘no’
 2. **Universal verifiability**: We have proof that all votes have been correctly counted-protects against attacks on the server, that delete, add or modify some votes[^1]
 
-   
+### Other desirable features
+
+- [ ] Set time frame in which people can respond to vote
+- [ ] Restrict vote to subset of entities/addresses.
+- [ ] Add  support for mini publics (only randomly selected addresses can vote, more on that below)
+- [ ] Individual verifiability, but in a way that does not allow to sell your vote
+- [ ] Liquid democracy (allowing someone else to cast a vote for you, i.e. voting the same as them)
+- [ ] One can change its mind, and change its vote, as long as the vote is still ongoing.
+
+
 
 ### How the contract works
 
@@ -53,15 +61,16 @@ Additionally this voting scheme can explore many desirable properties that are h
 
 ### Useful links
 
-https://github.com/enigmampc/secret-contracts-guide
+- https://learn.figment.io/network-documentation/secret/tutorials/creating-a-secret-contract-from-scratch
+- https://github.com/enigmampc/secret-contracts-guide
+- https://github.com/enigmampc/secret-toolkit
 
-https://github.com/enigmampc/secret-toolkit
+- https://learn.figment.io/network-documentation/secret
 
-https://learn.figment.io/network-documentation/secret
+- https://github.com/enigmampc/SecretJS-Templates
 
-https://github.com/enigmampc/SecretJS-Templates
+- https://build.scrt.network/dev/quickstart.html#create-initial-smart-contract
 
-https://build.scrt.network/dev/quickstart.html#create-initial-smart-contract
 
 
 
