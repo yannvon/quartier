@@ -44,3 +44,5 @@ serde = { version = "1.0.114", default-features = false, features = [
 ] }
 snafu = { version = "0.6.3" }
 bincode2 = "2.0.1"
+
+secret-toolkit = { git = "https://github.com/enigmampc/secret-toolkit" }

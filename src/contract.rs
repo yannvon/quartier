@@ -6,9 +6,10 @@ use cosmwasm_std::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::msg::{InitMsg, HandleMsg, QueryMsg};
-use crate::state::{Tally};
+use crate::msg::{InitMsg, HandleMsg, QueryMsg, HandleAnswer, ResponseStatus::{Failure, Success},};
+use crate::state::{Tally, Vote};
 use std::collections::HashSet;
+use crate::msg::ResponseStatus;
 
 
 // Disclaimer: The basic structure is taken from: https://github.com/enigmampc/SecretSimpleVote
@@ -17,6 +18,7 @@ use std::collections::HashSet;
 
 /// storage key for vote state
 /// FIXME why do we distinguis poll and vote in existing code ?
+// TODO
 pub const VOTE_KEY: &[u8] = b"vote";
 pub const POLL_KEY: &[u8] = b"poll";
 
@@ -62,30 +64,75 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     msg: HandleMsg,
 ) -> HandleResult {
     let mut tally: Tally = deserialize(&deps.storage.get(b"tally").unwrap())?;
-
     let voter = env.message.sender;
     let voter_raw = &deps.api.canonical_address(&voter)?;
+    let mut previous_vote: bool;
+    let mut message = String::new();
+    let status: ResponseStatus;
+    let mut previous_vote: Option<bool> = None;
 
     if tally.voters.contains(&voter_raw.as_slice().to_vec()) {
-        // FIXME is this the correct way of handling an error ?
-        return Err(StdError::Unauthorized{ backtrace: None })
-    }
+        // Voter has already cast a vote !
+        let vote: Vote = deserialize(&deps.storage.get(voter_raw.as_slice()).unwrap())?;
+        previous_vote = Some(vote.yes);
 
-    // Increase tally
-    if msg.yes {
-        tally.yes += 1;
+        // Check whether the tally needs to be adapted
+        if msg.yes != vote.yes && msg.yes {
+            // Previously voted no, now changed mind to yes
+            tally.yes += 1;
+            tally.no -= 1;
+        } else if msg.yes != vote.yes && !msg.yes {
+            // Previously voted yes, now changed mind to no
+            tally.yes -= 1;
+            tally.no += 1;
+        }
+        message.push_str(&format!("Vote changed to: {}", msg.yes));
+
+    // Voter votes for the first time
     } else {
-        tally.no += 1;
+        message.push_str(&format!("Voted successully: {}", msg.yes));
+
+        // Increase tally
+        if msg.yes {
+            tally.yes += 1;
+        } else {
+            tally.no += 1;
+        }
+
+        // Add voter to list of voters to prevent double voting
+        tally.voters.insert(voter_raw.as_slice().to_vec());
     }
 
-    // Add voter to list of voters to prevent double voting
-    tally.voters.insert(voter_raw.as_slice().to_vec());
-
+    // Save tally
     deps.storage.set(b"tally", &serialize(&tally)?);
-    Ok(HandleResponse::default())
+    // Save latest vote
+    let new_vote = Vote {
+        yes: msg.yes,
+        timestamp: env.block.time,
+    };
+    deps.storage.set(voter_raw.as_slice(), &serialize(&new_vote)?);
+
+
+    Ok(HandleResponse {
+      messages: vec![],
+      log: vec![],
+      data: Some(to_binary(&HandleAnswer::Vote {
+          status: Success,
+          message,
+          previous_vote: previous_vote,
+          vote_cast: msg.yes,
+      })?),
+  })
 }
 
 
+/////////////////////////////////////// Query /////////////////////////////////////
+/// Returns QueryResult
+///
+/// # Arguments
+///
+/// * `deps` - reference to Extern containing all the contract's external dependencies
+/// * `msg` - QueryMsg passed in with the query call
 pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMsg) -> QueryResult {
     match msg {
         QueryMsg::GetPoll {} => {
@@ -96,15 +143,20 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
             let tally: Tally = deserialize(&deps.storage.get(b"tally").unwrap())?;
             Ok(to_binary(&tally)?)
         }
+        QueryMsg::GetVote {} => {
+            let tally: Tally = deserialize(&deps.storage.get(b"tally").unwrap())?;
+            Ok(to_binary(&tally)?)
+        }
+
     }
 }
 
-fn serialize<T: Serialize + Debug>(value: &T) -> StdResult<Vec<u8>> {
+pub fn serialize<T: Serialize + Debug>(value: &T) -> StdResult<Vec<u8>> {
     bincode2::serialize(value)
         .map_err(|_err| StdError::generic_err(format!("Failed to serialize object: {:?}", value)))
 }
 
-fn deserialize<'a, T: Deserialize<'a> + Debug>(data: &'a [u8]) -> StdResult<T> {
+pub fn deserialize<'a, T: Deserialize<'a> + Debug>(data: &'a [u8]) -> StdResult<T> {
     bincode2::deserialize(data)
         .map_err(|_err| StdError::generic_err(format!("Failed to serialize object: {:?}", data)))
 }
@@ -145,7 +197,7 @@ mod tests {
 
         // anyone can vote
         let env = mock_env("anyone", &coins(2, "token"));
-        let msg = HandleMsg{ yes : true};
+        let msg = HandleMsg{ yes : true, delegate: false, voter: None};
         let _res = handle(&mut deps, env, msg).unwrap();
 
         // should increase yes tally by 1
@@ -156,7 +208,7 @@ mod tests {
 
         // someone else can vote
         let env = mock_env("someone else", &coins(3, "token"));
-        let msg = HandleMsg{ yes : false};
+        let msg = HandleMsg{ yes : false, delegate: false, voter: None};
         let _res = handle(&mut deps, env, msg).unwrap();
 
         // should increase yes tally by 1
@@ -177,7 +229,7 @@ mod tests {
 
         // anyone can vote
         let env = mock_env("anyone", &coins(2, "token"));
-        let msg = HandleMsg{ yes : true};
+        let msg = HandleMsg{ yes : true, delegate: false, voter: None};
         let _res = handle(&mut deps, env, msg).unwrap();
 
         // lets figure out what the poll is
@@ -187,7 +239,7 @@ mod tests {
     }
 
     #[test]
-    fn no_double_vote() {
+    fn vote_only_counts_once() {
         let mut deps = mock_dependencies(20, &coins(2, "token")); // amount, denom
 
         let msg = InitMsg { poll : String::from("Is the sky blue?") };
@@ -196,22 +248,48 @@ mod tests {
 
         // anyone can vote
         let env = mock_env("anyone", &coins(2, "token"));
-        let msg = HandleMsg{ yes : true};
+        let msg = HandleMsg{ yes : true, delegate: false, voter: None};
         let _res = handle(&mut deps, env, msg).unwrap();
 
-        // should not be able to vote twice though
+        // can vote twice, but should only count once though
         let env = mock_env("anyone", &coins(2, "token"));
-        let msg = HandleMsg{ yes : true};
+        let msg = HandleMsg{ yes : true, delegate: false, voter: None};
         let _res = handle(&mut deps, env, msg);
-        match _res {
-            Err(StdError::Unauthorized { .. }) => {}
-                _ => panic!("Must disallow double vote"),
-            }
+
+        //match _res {
+        //    Err(StdError::Unauthorized { .. }) => {}
+        //        _ => panic!("Must disallow double vote"),
+        //    }
 
         // should increase yes tally by 1 only
         let res = query(&deps, QueryMsg::GetTally {}).unwrap();
         let value: Tally = from_binary(&res).unwrap();
         assert_eq!(1, value.yes);
         assert_eq!(0, value.no);
+    }
+
+    #[test]
+    fn can_change_mind() {
+        let mut deps = mock_dependencies(20, &coins(2, "token")); // amount, denom
+
+        let msg = InitMsg { poll : String::from("Is the sky blue?") };
+        let env = mock_env("creator", &coins(2, "token"));
+        let _res = init(&mut deps, env, msg).unwrap();
+
+        // anyone can vote
+        let env = mock_env("anyone", &coins(2, "token"));
+        let msg = HandleMsg{ yes : true, delegate: false, voter: None};
+        let _res = handle(&mut deps, env, msg).unwrap();
+
+        // can change mind
+        let env = mock_env("anyone", &coins(2, "token"));
+        let msg = HandleMsg{ yes : false, delegate: false, voter: None};
+        let _res = handle(&mut deps, env, msg);
+
+        // should increase no tally by 1 only
+        let res = query(&deps, QueryMsg::GetTally {}).unwrap();
+        let value: Tally = from_binary(&res).unwrap();
+        assert_eq!(0, value.yes);
+        assert_eq!(1, value.no);
     }
 }
