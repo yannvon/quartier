@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use crate::msg::{InitMsg, HandleMsg, QueryMsg, HandleAnswer, ResponseStatus::{Failure, Success},};
 use crate::state::{Tally, Vote};
 use std::collections::HashSet;
-use crate::msg::ResponseStatus;
 
 
 // Disclaimer: The basic structure is taken from: https://github.com/enigmampc/SecretSimpleVote
@@ -66,9 +65,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     let mut tally: Tally = deserialize(&deps.storage.get(b"tally").unwrap())?;
     let voter = env.message.sender;
     let voter_raw = &deps.api.canonical_address(&voter)?;
-    let mut previous_vote: bool;
     let mut message = String::new();
-    let status: ResponseStatus;
     let mut previous_vote: Option<bool> = None;
 
     if tally.voters.contains(&voter_raw.as_slice().to_vec()) {
@@ -145,7 +142,15 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
         }
         QueryMsg::GetVote {} => {
             let tally: Tally = deserialize(&deps.storage.get(b"tally").unwrap())?;
-            Ok(to_binary(&tally)?)
+            let voter = env.message.sender;
+            let voter_raw = &deps.api.canonical_address(&voter)?;
+
+            if !tally.voters.contains(&voter_raw.as_slice().to_vec()) {
+                return  StdError // FIXME  
+            }
+
+            let vote: Vote = deserialize(&deps.storage.get(voter_raw.as_slice()).unwrap())?;
+            Ok(to_binary(&vote)?)
         }
 
     }
@@ -165,7 +170,7 @@ pub fn deserialize<'a, T: Deserialize<'a> + Debug>(data: &'a [u8]) -> StdResult<
 mod tests {
     use super::*;
     use cosmwasm_std::testing::{mock_dependencies, mock_env};
-    use cosmwasm_std::{coins, from_binary, StdError};
+    use cosmwasm_std::{coins, from_binary};
 
     #[test]
     fn proper_initialization() {
