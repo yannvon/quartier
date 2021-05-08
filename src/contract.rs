@@ -11,6 +11,7 @@ use crate::state::{Tally, Vote};
 use std::collections::HashSet;
 
 
+
 // Disclaimer: The basic structure is taken from: https://github.com/enigmampc/SecretSimpleVote
 // and is also inspired by https://github.com/baedrik/SCRT-sealed-bid-auction/blob/master/src/contract.rs
 
@@ -38,12 +39,20 @@ pub const BLOCK_SIZE: usize = 256;
 /// * `msg` - InitMsg passed in with the instantiation message
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
-    _env: Env,
+    env: Env,
     msg: InitMsg,
 ) -> InitResult {
     deps.storage.set(b"poll", &serialize(&msg.poll)?);
 
-    let new_tally = Tally { yes: 0, no: 0, voters: HashSet::new()};
+    let new_tally = Tally { 
+        yes: 0, 
+        no: 0, 
+        voters: HashSet::new(),
+        init_timestamp: env.block.time,
+        end_timestamp: msg.duration + env.block.time,
+        is_completed: false,
+        early_results_allowed: msg.early_results_allowed};
+    
     deps.storage.set(b"tally", &serialize(&new_tally)?);
     Ok(InitResponse::default())
 }
@@ -66,6 +75,42 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     let voter = env.message.sender;
     let voter_raw = &deps.api.canonical_address(&voter)?;
     let mut message = String::new();
+
+    // First check whether Tally is still ongoing
+    let current_timestamp: u64 = env.block.time;
+    
+    if tally.end_timestamp < current_timestamp {
+        
+        // Change is_complete boolean, such that now the result can be queried
+        // TODO make is such this can be done without having to vote
+        tally.is_completed = true;
+
+         // Save tally
+        deps.storage.set(b"tally", &serialize(&tally)?);
+
+        // Check whether a vote has been recorded and if so return
+        // it with an error message.
+        let mut vote_cast: Option<bool> = None;
+        if tally.voters.contains(&voter_raw.as_slice().to_vec()) {
+            let vote: Vote = deserialize(&deps.storage.get(voter_raw.as_slice()).unwrap())?;
+            vote_cast = Some(vote.yes);
+        }
+
+        message.push_str("Tally is over.");
+
+        return Ok(HandleResponse {
+            messages: vec![],
+            log: vec![],
+            data: Some(to_binary(&HandleAnswer::Vote {
+                status: Failure,
+                message,
+                previous_vote: vote_cast,
+                vote_cast: None,
+            })?)
+        })
+    }
+
+    // Tally is still ongoing
     let mut previous_vote: Option<bool> = None;
 
     if tally.voters.contains(&voter_raw.as_slice().to_vec()) {
@@ -100,15 +145,13 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         tally.voters.insert(voter_raw.as_slice().to_vec());
     }
 
-    // Save tally
+    // In both cases save tally and new vote
     deps.storage.set(b"tally", &serialize(&tally)?);
-    // Save latest vote
     let new_vote = Vote {
         yes: msg.yes,
         timestamp: env.block.time,
     };
     deps.storage.set(voter_raw.as_slice(), &serialize(&new_vote)?);
-
 
     Ok(HandleResponse {
       messages: vec![],
@@ -117,7 +160,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
           status: Success,
           message,
           previous_vote: previous_vote,
-          vote_cast: msg.yes,
+          vote_cast: Some(msg.yes),
       })?),
   })
 }
@@ -138,21 +181,18 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
         }
         QueryMsg::GetTally {} => {
             let tally: Tally = deserialize(&deps.storage.get(b"tally").unwrap())?;
+            
+            // Check whether tally is over and thus can be disclosed
+            if !tally.early_results_allowed && !tally.is_completed {
+                return Err(StdError::Unauthorized{backtrace: None})
+                // FIXME change to more informative answer
+            }
             Ok(to_binary(&tally)?)
         }
-        QueryMsg::GetVote {} => {
-            let tally: Tally = deserialize(&deps.storage.get(b"tally").unwrap())?;
-            let voter = env.message.sender;
-            let voter_raw = &deps.api.canonical_address(&voter)?;
-
-            if !tally.voters.contains(&voter_raw.as_slice().to_vec()) {
-                return  StdError // FIXME  
-            }
-
-            let vote: Vote = deserialize(&deps.storage.get(voter_raw.as_slice()).unwrap())?;
-            Ok(to_binary(&vote)?)
-        }
-
+ 
+        // Note: Querying vote makes no sense as we do not want to disclose it. 
+        // One can always re-cast a vote in order to get the proof that it was counted. 
+        
     }
 }
 
@@ -166,17 +206,23 @@ pub fn deserialize<'a, T: Deserialize<'a> + Debug>(data: &'a [u8]) -> StdResult<
         .map_err(|_err| StdError::generic_err(format!("Failed to serialize object: {:?}", data)))
 }
 
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use cosmwasm_std::testing::{mock_dependencies, mock_env};
     use cosmwasm_std::{coins, from_binary};
+    //use std::thread;
+    //use std::time;
 
+    pub const STANDARD_DURATION: u64 = 10000000;
+    
     #[test]
     fn proper_initialization() {
         let mut deps = mock_dependencies(20, &[]);  // canonical length, contract balance
 
-        let msg = InitMsg { poll : String::from("Is the sky blue?") };
+        let msg = InitMsg { poll : String::from("Is the sky blue?"), duration: STANDARD_DURATION, early_results_allowed: true};
         let env = mock_env("creator", &coins(1000, "earth"));
 
         // we can just call .unwrap() to assert this was a success
@@ -196,7 +242,7 @@ mod tests {
 
         let mut deps = mock_dependencies(20, &coins(2, "token")); // amount, denom
 
-        let msg = InitMsg { poll : String::from("Is the sky blue?") };
+        let msg = InitMsg { poll : String::from("Is the sky blue?"), duration: STANDARD_DURATION, early_results_allowed: true};
         let env = mock_env("creator", &coins(2, "token"));
         let _res = init(&mut deps, env, msg).unwrap();
 
@@ -228,7 +274,7 @@ mod tests {
         let mut deps = mock_dependencies(20, &coins(2, "token")); // amount, denom
 
         // same setup
-        let msg = InitMsg { poll : String::from("Is the sky blue?")};
+        let msg = InitMsg { poll : String::from("Is the sky blue?"), duration: STANDARD_DURATION, early_results_allowed: true};
         let env = mock_env("creator", &coins(2, "token"));
         let _res = init(&mut deps, env, msg).unwrap();
 
@@ -247,7 +293,7 @@ mod tests {
     fn vote_only_counts_once() {
         let mut deps = mock_dependencies(20, &coins(2, "token")); // amount, denom
 
-        let msg = InitMsg { poll : String::from("Is the sky blue?") };
+        let msg = InitMsg { poll : String::from("Is the sky blue?"), duration: STANDARD_DURATION, early_results_allowed: true };
         let env = mock_env("creator", &coins(2, "token"));
         let _res = init(&mut deps, env, msg).unwrap();
 
@@ -277,7 +323,7 @@ mod tests {
     fn can_change_mind() {
         let mut deps = mock_dependencies(20, &coins(2, "token")); // amount, denom
 
-        let msg = InitMsg { poll : String::from("Is the sky blue?") };
+        let msg = InitMsg { poll : String::from("Is the sky blue?"), duration: STANDARD_DURATION, early_results_allowed: true };
         let env = mock_env("creator", &coins(2, "token"));
         let _res = init(&mut deps, env, msg).unwrap();
 
@@ -297,4 +343,19 @@ mod tests {
         assert_eq!(0, value.yes);
         assert_eq!(1, value.no);
     }
+
+    #[test]
+    fn no_more_voting_after_end() {
+        // TODO
+        // let two_seconds = time::Duration::from_millis(2000);
+        // thread::sleep(two_seconds);
+        // This doesn't change block, and thus not time of execution
+    }
+
+    #[test]
+    fn secret_tally_is_revealed_after_end() {
+        // TODO
+    }
+
+
 }

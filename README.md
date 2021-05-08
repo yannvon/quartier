@@ -42,12 +42,12 @@ Additionally this voting scheme can explore many desirable properties that are h
 
 ### Other desirable features
 
-- [ ] Set time frame in which people can respond to vote
+- [x] Set time frame in which people can respond to vote
 - [ ] Restrict vote to subset of entities/addresses.
 - [ ] Add  support for mini publics (only randomly selected addresses can vote, more on that below)
-- [ ] Individual verifiability, but in a way that does not allow to sell your vote
+- [x] Individual verifiability, (ideally in a way that does not allow to sell your vote
 - [ ] Liquid democracy (allowing someone else to cast a vote for you, i.e. voting the same as them)
-- [ ] One can change its mind, and change its vote, as long as the vote is still ongoing.
+- [x] One can change its mind, and change its vote, as long as the vote is still ongoing.
 
 
 

@@ -5,11 +5,12 @@ use cosmwasm_std::{
 };
 
 
-
 #[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct InitMsg {
     pub poll: String,
+    pub duration: u64,
+    pub early_results_allowed: bool,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
@@ -25,7 +26,6 @@ pub struct HandleMsg {
 pub enum QueryMsg {
     GetPoll {},
     GetTally {},
-    GetVote {},
 }
 
 // We define a custom struct for each query response
@@ -52,11 +52,12 @@ pub enum HandleAnswer {
         status: ResponseStatus,
         /// execution description
         message: String,
-        // New vote
-        vote_cast: bool,
         // Previous vote if there was any
         #[serde(skip_serializing_if = "Option::is_none")]
         previous_vote: Option<bool>,
+        // New vote
+        #[serde(skip_serializing_if = "Option::is_none")]
+        vote_cast: Option<bool>,
     },
     // generic status response
     Status {
