@@ -80,8 +80,6 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     let voter_raw = &deps.api.canonical_address(&voter)?;
     let mut message = String::new();
     let mut vote_value: u64 = 1;
-    println!("{} {:?}", voter, msg.delegate);
-
 
     // First check that msg is valid, ie. it has either vote or delegate, but not both
     if (msg.vote.is_none() && msg.delegate.is_none()) || (!msg.vote.is_none() && !msg.delegate.is_none()) {
@@ -225,7 +223,6 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
                 }
             }
             None => {
-                println!("{} delegates vote to {:?}", voter, msg.delegate);
                 tally = delegate_vote(deps, &env, &msg, tally, &voter, vote_value, &msg.delegate)?
             }
         }
@@ -272,7 +269,6 @@ fn delegate_vote<S: Storage, A: Api, Q: Querier>(deps: &mut Extern<S, A, Q>, env
 
         // No more delegation, end of recursion
         None => {
-            println!("End of recursion, no more delegation.");
             // The current voter receives the voting power
             // Check if ballot already exists
             if tally.voters.contains(&voter_raw.as_slice().to_vec()) {
@@ -299,7 +295,6 @@ fn delegate_vote<S: Storage, A: Api, Q: Querier>(deps: &mut Extern<S, A, Q>, env
                     deps.storage.set(voter_raw.as_slice(), &serialize(&voter_ballot)?);
                 }
             } else {
-                println!("Creating new ballot");
                 // Create ballot.
                 let new_ballot = Ballot {
                     has_voted: false,
@@ -324,12 +319,10 @@ fn delegate_vote<S: Storage, A: Api, Q: Querier>(deps: &mut Extern<S, A, Q>, env
             if tally.voters.contains(&delegate_raw.as_slice().to_vec()) {
 
                 let delegate_ballot: Ballot = deserialize(&deps.storage.get(&delegate_raw.as_slice()).unwrap())?;
-                println!("delegate vote to known delegate: {}", delegate); 
 
                 return delegate_vote(deps, env, msg, tally, &delegate, vote_value, &delegate_ballot.delegate)
             }
             else {
-                println!("delegate vote to unknown delegate yet: {}", delegate); 
                 return delegate_vote(deps, env, msg, tally, &delegate, vote_value, &None)
             }
             
@@ -557,17 +550,58 @@ mod tests {
 
     #[test]
     fn delegation_to_already_voted() {
-        // TODO
-    }
 
-    #[test]
-    fn delegation_to_new_addr() {
-        // TODO
+        let mut deps = mock_dependencies(20, &coins(2, "token")); // amount, denom
+
+        let msg = InitMsg { poll : String::from("Is the sky blue?"), duration: STANDARD_DURATION, early_results_allowed: true };
+        let env = mock_env("creator", &coins(2, "token"));
+        let _res = init(&mut deps, env, msg).unwrap();
+
+        // Franz can vote
+        let env = mock_env("Franz", &coins(2, "token"));
+        let msg = HandleMsg{ vote : Some(true), delegate: None};
+        let _res = handle(&mut deps, env, msg);
+  
+        // Max can vote, he delegates to Franz, and thus Franz's vote should count twice
+        let env = mock_env("Max", &coins(2, "token"));
+        let delegate : HumanAddr = HumanAddr("Franz".to_string());
+        let msg = HandleMsg{ vote : None, delegate: Some(delegate)};
+        let _res = handle(&mut deps, env, msg).unwrap();
+
+        // should increase tally by 2
+        let res = query(&deps, QueryMsg::GetTally {}).unwrap();
+        let value: Tally = from_binary(&res).unwrap();
+        assert_eq!(2, value.yes);
+        assert_eq!(0, value.no);
+
     }
 
     #[test]
     fn bad_vote_throws_error() {
-        // TODO
+        let mut deps = mock_dependencies(20, &coins(2, "token")); // amount, denom
+
+        let msg = InitMsg { poll : String::from("Is the sky blue?"), duration: STANDARD_DURATION, early_results_allowed: true };
+        let env = mock_env("creator", &coins(2, "token"));
+        let _res = init(&mut deps, env, msg).unwrap();
+
+        // Max can't vote and delegate to Franz at the same time
+        let env = mock_env("Max", &coins(2, "token"));
+        let delegate : HumanAddr = HumanAddr("Franz".to_string());
+        let msg = HandleMsg{ vote : Some(true), delegate: Some(delegate)};
+        let res = handle(&mut deps, env, msg);
+
+        match res {
+            Err(StdError::Unauthorized { .. }) => {}
+                _ => panic!("Must disallow double vote"),
+            }
+        
+
+        // Tally should not have moved
+        // should increase tally by 2
+        let res = query(&deps, QueryMsg::GetTally {}).unwrap();
+        let value: Tally = from_binary(&res).unwrap();
+        assert_eq!(0, value.yes);
+        assert_eq!(0, value.no);
     }
 
 
