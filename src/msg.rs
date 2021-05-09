@@ -16,9 +16,8 @@ pub struct InitMsg {
 #[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct HandleMsg {
-    pub yes: bool,
-    pub delegate: bool,
-    pub voter: Option<HumanAddr>,
+    pub vote: Option<bool>,
+    pub delegate: Option<HumanAddr>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
@@ -47,17 +46,16 @@ pub enum ResponseStatus {
 #[serde(rename_all = "snake_case")]
 pub enum HandleAnswer {
     // response from vote attempt
-    Vote {
+    Ballot {
         /// success or failure
         status: ResponseStatus,
         /// execution description
         message: String,
-        // Previous vote if there was any
-        #[serde(skip_serializing_if = "Option::is_none")]
-        previous_vote: Option<bool>,
         // New vote
         #[serde(skip_serializing_if = "Option::is_none")]
-        vote_cast: Option<bool>,
+        vote: Option<bool>,
+        // Address of entity to which vote was delegated, called a delegate
+        delegate: Option<HumanAddr>,
     },
     // generic status response
     Status {

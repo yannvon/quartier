@@ -1,6 +1,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use cosmwasm_std::{
+    HumanAddr,
+};
 
 //use cosmwasm_std::{CanonicalAddr, Storage};
 //use cosmwasm_storage::{singleton, singleton_read, ReadonlySingleton, Singleton};
@@ -25,15 +28,15 @@ pub struct Tally {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-pub struct Vote {
+pub struct Ballot {
     // voted
-    //pub has_voted: bool,
-    // vote
-    pub yes: bool,
+    pub has_voted: bool,
     // time of vote
     pub timestamp: u64,
-    // liquid
-    //pub transfered: HumanAddress,
+    // vote
+    pub vote: Option<bool>,
+    // allow liquid democracy
+    pub delegate: Option<HumanAddr>,
     // vote value (can be increased through transfered votes)
-    //pub vote_value: u64,
+    pub vote_value: u64,
 }
