@@ -509,18 +509,6 @@ mod tests {
         assert_eq!(0, value.no);
     }
 
-    #[test]
-    fn no_more_voting_after_end() {
-        // TODO
-        // let two_seconds = time::Duration::from_millis(2000);
-        // thread::sleep(two_seconds);
-        // This doesn't change block, and thus not time of execution
-    }
-
-    #[test]
-    fn secret_tally_is_revealed_after_end() {
-        // TODO
-    }
 
     #[test]
     fn simple_delegation() {
@@ -532,12 +520,12 @@ mod tests {
 
         // max can vote and delegate to franz
         let env = mock_env("Max", &coins(2, "token"));
-        let delegate : HumanAddr = HumanAddr("Franz".to_string());
+        let delegate : HumanAddr = HumanAddr("John".to_string());
         let msg = HandleMsg{ vote : None, delegate: Some(delegate)};
         let _res = handle(&mut deps, env, msg).unwrap();
 
         // franz can vote and his vote is thus worth 2
-        let env = mock_env("Franz", &coins(2, "token"));
+        let env = mock_env("John", &coins(2, "token"));
         let msg = HandleMsg{ vote : Some(true), delegate: None};
         let _res = handle(&mut deps, env, msg);
 
@@ -553,22 +541,22 @@ mod tests {
 
         let mut deps = mock_dependencies(20, &coins(2, "token")); // amount, denom
 
-        let msg = InitMsg { poll : String::from("Is the sky blue?"), duration: STANDARD_DURATION, early_results_allowed: true };
+        let msg = InitMsg { poll : String::from("Should we buy new benches?"), duration: STANDARD_DURATION, early_results_allowed: true };
         let env = mock_env("creator", &coins(2, "token"));
         let _res = init(&mut deps, env, msg).unwrap();
 
-        // Franz can vote
-        let env = mock_env("Franz", &coins(2, "token"));
+        // John can vote
+        let env = mock_env("John", &coins(42, "token"));
         let msg = HandleMsg{ vote : Some(true), delegate: None};
         let _res = handle(&mut deps, env, msg);
   
-        // Max can vote, he delegates to Franz, and thus Franz's vote should count twice
-        let env = mock_env("Max", &coins(2, "token"));
-        let delegate : HumanAddr = HumanAddr("Franz".to_string());
+        // Max can vote, he delegates to John, and thus Franz's vote should count twice
+        let env = mock_env("Max", &coins(35, "token"));
+        let delegate : HumanAddr = HumanAddr("John".to_string());
         let msg = HandleMsg{ vote : None, delegate: Some(delegate)};
         let _res = handle(&mut deps, env, msg).unwrap();
 
-        // should increase tally by 2
+        // Should increase tally by 2
         let res = query(&deps, QueryMsg::GetTally {}).unwrap();
         let value: Tally = from_binary(&res).unwrap();
         assert_eq!(2, value.yes);
@@ -584,9 +572,9 @@ mod tests {
         let env = mock_env("creator", &coins(2, "token"));
         let _res = init(&mut deps, env, msg).unwrap();
 
-        // Max can't vote and delegate to Franz at the same time
+        // Max can't vote and delegate to John at the same time
         let env = mock_env("Max", &coins(2, "token"));
-        let delegate : HumanAddr = HumanAddr("Franz".to_string());
+        let delegate : HumanAddr = HumanAddr("John".to_string());
         let msg = HandleMsg{ vote : Some(true), delegate: Some(delegate)};
         let res = handle(&mut deps, env, msg);
 
@@ -605,4 +593,13 @@ mod tests {
     }
 
 
+    #[test]
+    fn no_more_voting_after_end() {
+        // TODO
+    }
+
+    #[test]
+    fn secret_tally_is_revealed_after_end() {
+        // TODO
+    }
 }

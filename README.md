@@ -79,6 +79,8 @@ Additionally this voting scheme can explore many desirable properties that are h
 [^1]: The entire section was taken from "Crypto for e-voting protocols", a lecture given by Prof. Oechslin at EPFL in 2019.
 [^2]: Image taken from https://commons.wikimedia.org/wiki/File:Lombard_Street,_San_Francisco._(Unsplash).jpg
 
+https://pixabay.com/illustrations/ballot-box-vote-ballot-box-icon-5676561/
+
 
 
 [2]: https://github.com/enigmampc/secret-template
