@@ -6,7 +6,7 @@ use cosmwasm_std::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::msg::{InitMsg, HandleMsg, QueryMsg, HandleAnswer, Re sponseStatus::{Failure, Success},};
+use crate::msg::{InitMsg, HandleMsg, QueryMsg, HandleAnswer, ResponseStatus::{Failure, Success},};
 use crate::state::{Tally, Ballot};
 use std::collections::HashSet;
 use cosmwasm_std::{HumanAddr,};
@@ -76,17 +76,16 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     // TODO add handle message to query current ballot
 
     let mut tally: Tally = deserialize(&deps.storage.get(b"tally").unwrap())?;
-    let voter = env.message.sender;
+    let voter = &env.message.sender;
     let voter_raw = &deps.api.canonical_address(&voter)?;
     let mut message = String::new();
-    let mut vote: Option<bool> = msg.vote;
-    let mut delegate: Option<HumanAddr> = msg.delegate;
+    //let mut vote: Option<bool> = msg.vote;
+    //let mut delegate: Option<HumanAddr> = msg.delegate;
     let mut vote_value: u64 = 1;
-    let mut status : ResponseStatus = Success;
 
 
     // First check that msg is valid, ie. it has either vote or delegate, but not both
-    if (vote.is_none() && delegate.is_none()) || (!vote.is_none() && !delegate.is_none()) {
+    if (msg.vote.is_none() && msg.delegate.is_none()) || (!msg.vote.is_none() && !msg.delegate.is_none()) {
         
         // Malformed message
         // TODO better error message
@@ -104,6 +103,9 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         // TODO make is such this can be done without having to vote
         tally.is_completed = true;
         deps.storage.set(b"tally", &serialize(&tally)?);
+
+        let mut vote: Option<bool> = None;
+        let mut delegate: Option<HumanAddr> = None;
 
         // Check whether a ballot has been recorded and if so return
         // it with an error message.
@@ -124,8 +126,8 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
                 message,
                 vote,
                 delegate
-            })?)
-        })
+            })?),
+        });
     }
 
     // Otherwise, Tally is still ongoing
@@ -134,7 +136,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     if tally.voters.contains(&voter_raw.as_slice().to_vec()) {
 
         // Check whether it is because of increased vote value, or because a vote was already cast.
-        let ballot: Ballot = deserialize(&deps.storage.get(voter_raw.as_slice()).unwrap())?;
+        let mut ballot: Ballot = deserialize(&deps.storage.get(voter_raw.as_slice()).unwrap())?;
 
         if !ballot.has_voted {
 
@@ -143,7 +145,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
 
             // Helper function that does the dirty work
             // First, if we have a vote, we vote
-            match vote {
+            match msg.vote {
                 Some(v) => {
                     if v {
                         tally.yes += vote_value;
@@ -152,7 +154,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
                     }
                 }
                 None => {
-                    tally = delegate_vote(deps, msg, tally, voter_raw, vote_value, delegate)
+                    tally = delegate_vote(deps, &env, &msg, tally, &voter, vote_value, &msg.delegate)?
                 }
             }
             
@@ -161,12 +163,23 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             // Save new and final ballot
             ballot.has_voted = true;
             ballot.timestamp = env.block.time;
-            ballot.vote = vote;
-            ballot.delegate = delegate;
+            ballot.vote = msg.vote;
+            ballot.delegate = msg.delegate;
             deps.storage.set(voter_raw.as_slice(), &serialize(&ballot)?);
 
             // Finally store updated tally
             deps.storage.set(b"tally", &serialize(&tally)?);
+
+            return Ok(HandleResponse {
+                messages: vec![],
+                log: vec![],
+                data: Some(to_binary(&HandleAnswer::Ballot {
+                    status: Success,
+                    message,
+                    vote: msg.vote,
+                    delegate: None, // FIXME return msg.delegate
+                })?),
+            });
 
         } else {
 
@@ -180,9 +193,17 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             // but once a ballot is finalized, the tally is increased without increasing vote_value.
 
             message.push_str("Ballot was already cast!");
-            status = Failure;
-            vote = ballot.vote;
-            delegate = ballot.delegate;
+        
+            return Ok(HandleResponse {
+                messages: vec![],
+                log: vec![],
+                data: Some(to_binary(&HandleAnswer::Ballot {
+                    status: Failure,
+                    message,
+                    vote: ballot.vote,
+                    delegate: ballot.delegate
+                })?),
+            });
         }
 
     // Voter votes for the first time, and doesn't have increased vote value
@@ -191,17 +212,16 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         // OPTION 3: Fresh ballot and single vote
 
         // Hard work is done by same helper function
-        match vote {
+        match msg.vote {
             Some(v) => {
                 if v {
                     tally.yes += vote_value;
                 } else {
                     tally.no += vote_value;
                 }
-                return tally;
             }
             None => {
-                tally = delegate_vote(deps, msg, tally, voter_raw, vote_value, delegate)
+                tally = delegate_vote(deps, &env, &msg, tally, &voter, vote_value, &msg.delegate)?
             }
         }
 
@@ -215,30 +235,34 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         let new_ballot = Ballot {
             has_voted: true,
             timestamp: env.block.time,
-            vote: vote,
-            delegate: delegate, // FIXME add final delegate for future improvements
+            vote: msg.vote,
+            delegate: msg.delegate, // FIXME add final delegate for future improvements
             vote_value: 1
         };
         deps.storage.set(voter_raw.as_slice(), &serialize(&new_ballot)?);
 
         // Finally store updated tally
         deps.storage.set(b"tally", &serialize(&tally)?);
-    }
 
-    Ok(HandleResponse {
-      messages: vec![],
-      log: vec![],
-      data: Some(to_binary(&HandleAnswer::Ballot {
-          status: status,
-          message,
-          vote,
-          delegate, // FIXME make sure not stored (optimized) delegate, but one chosen by voter
-      })?),
-  })
+        return Ok(HandleResponse {
+            messages: vec![],
+            log: vec![],
+            data: Some(to_binary(&HandleAnswer::Ballot {
+                status: Success,
+                message,
+                vote: msg.vote,
+                delegate: None, // FIXME return real delegate. make sure not stored (optimized) delegate, but one chosen by voter
+            })?),
+        });
+    }
 }
 
 // Sideffects: can create up to one new ballot, if final delegate has no ballot yet.
-fn delegate_vote<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMsg, tally: Tally, voter_raw: HumanAddr, vote_value: u64, delegate: Option<HumanAddr>) -> Tally {
+fn delegate_vote<S: Storage, A: Api, Q: Querier>(deps: &mut Extern<S, A, Q>, env: &Env, msg: &HandleMsg, 
+    mut tally: Tally, voter: &HumanAddr, vote_value: u64, delegate: &Option<HumanAddr>) -> StdResult<Tally> {
+
+    let voter_raw = &deps.api.canonical_address(&voter)?;
+   
 
     match delegate{
 
@@ -248,7 +272,7 @@ fn delegate_vote<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: Qu
             // The current voter receives the voting power
             // Check if ballot already exists
             if tally.voters.contains(&voter_raw.as_slice().to_vec()) {
-                let voter_ballot: Ballot = deserialize(&deps.storage.get(voter.as_slice()).unwrap())?;
+                let mut voter_ballot: Ballot = deserialize(&deps.storage.get(voter_raw.as_slice()).unwrap())?;
 
                 // Check if already voted
                 if voter_ballot.has_voted {
@@ -261,7 +285,7 @@ fn delegate_vote<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: Qu
                             }
                         }
                         None => {
-                            panic("unecpected error occurred.")
+                            panic!("unecpected error occurred.")
                         }
                     }
                 } else {
@@ -282,18 +306,20 @@ fn delegate_vote<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: Qu
                 deps.storage.set(voter_raw.as_slice(), &serialize(&new_ballot)?);
 
             } 
-            return tally; 
+            return Ok(tally); 
         }
         Some(delegate) => {
 
-            // Keep recursion going
-            if tally.voters.contains(&delegate.as_slice().to_vec()) {
-                let delegate_ballot: Ballot = deserialize(&deps.storage.get(&delegate.as_slice()).unwrap())?;
-                return delegate_vote(deps, msg, tally, delegate, vote_value, delegate_ballot.delegate)
-            }
+            let delegate_raw = &deps.api.canonical_address(&delegate)?;
 
+
+            // Keep recursion going
+            if tally.voters.contains(&delegate_raw.as_slice().to_vec()) {
+                let delegate_ballot: Ballot = deserialize(&deps.storage.get(&delegate_raw.as_slice()).unwrap())?;
+                return delegate_vote(deps, env, msg, tally, &delegate, vote_value, &delegate_ballot.delegate)
+            }
             else {
-                return delegate_vote(deps, msg, tally, delegate, vote_value, None)
+                return delegate_vote(deps, env, msg, tally, &delegate, vote_value, &None)
             }
             
         }  
@@ -467,21 +493,16 @@ mod tests {
         let msg = HandleMsg{ vote : Some(true), delegate: None};
         let _res = handle(&mut deps, env, msg).unwrap();
 
-        // can change mind
+        // cant change mind
         let env = mock_env("anyone", &coins(2, "token"));
-        let msg = HandleMsg{ vote : Some(true), delegate: None};
+        let msg = HandleMsg{ vote : Some(false), delegate: None};
         let _res = handle(&mut deps, env, msg);
 
-        match _res {
-            Err(StdError::Unauthorized { .. }) => {}
-                _ => panic!("Must disallow changing vote"),
-            }
-
-        // should increase no tally by 1 only
+        // should increase true tally by 1 only
         let res = query(&deps, QueryMsg::GetTally {}).unwrap();
         let value: Tally = from_binary(&res).unwrap();
-        assert_eq!(0, value.yes);
-        assert_eq!(1, value.no);
+        assert_eq!(1, value.yes);
+        assert_eq!(0, value.no);
     }
 
     #[test]
