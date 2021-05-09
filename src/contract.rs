@@ -79,20 +79,18 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     let voter = &env.message.sender;
     let voter_raw = &deps.api.canonical_address(&voter)?;
     let mut message = String::new();
-    //let mut vote: Option<bool> = msg.vote;
-    //let mut delegate: Option<HumanAddr> = msg.delegate;
     let mut vote_value: u64 = 1;
+    println!("{} {:?}", voter, msg.delegate);
 
 
     // First check that msg is valid, ie. it has either vote or delegate, but not both
     if (msg.vote.is_none() && msg.delegate.is_none()) || (!msg.vote.is_none() && !msg.delegate.is_none()) {
         
-        // Malformed message
-        // TODO better error message
+        // Malformed message TODO better error message
         return Err(StdError::Unauthorized{backtrace: None})
     } 
 
-    // First check whether Tally is still ongoing
+    // Secondly, check whether Tally is still ongoing
     let current_timestamp: u64 = env.block.time;
     
     if tally.end_timestamp < current_timestamp {
@@ -111,9 +109,13 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         // it with an error message.
         if tally.voters.contains(&voter_raw.as_slice().to_vec()) {
             let ballot: Ballot = deserialize(&deps.storage.get(voter_raw.as_slice()).unwrap())?;
-            vote = ballot.vote;
-            delegate = ballot.delegate;
-            message.push_str("Previous ballot was however recorded.");
+            if ballot.has_voted {
+                message.push_str("A vote was cast however.");
+                vote = ballot.vote;
+                delegate = ballot.delegate;
+            } else {
+                message.push_str("Ballot was not taken into account.");
+            }
         } else {
             message.push_str("Ballot was not taken into account.");
         }
@@ -134,6 +136,8 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
 
     // Check if a ballot already exists
     if tally.voters.contains(&voter_raw.as_slice().to_vec()) {
+
+        print!("Ballot already exists !");
 
         // Check whether it is because of increased vote value, or because a vote was already cast.
         let mut ballot: Ballot = deserialize(&deps.storage.get(voter_raw.as_slice()).unwrap())?;
@@ -221,13 +225,13 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
                 }
             }
             None => {
+                println!("{} delegates vote to {:?}", voter, msg.delegate);
                 tally = delegate_vote(deps, &env, &msg, tally, &voter, vote_value, &msg.delegate)?
             }
         }
 
         message.push_str("Ballot was cast successfully!");
         
-        // FIXME saving ballot needed ?
         // Add voter to list of voters to prevent double voting
         tally.voters.insert(voter_raw.as_slice().to_vec());
 
@@ -268,7 +272,7 @@ fn delegate_vote<S: Storage, A: Api, Q: Querier>(deps: &mut Extern<S, A, Q>, env
 
         // No more delegation, end of recursion
         None => {
-
+            println!("End of recursion, no more delegation.");
             // The current voter receives the voting power
             // Check if ballot already exists
             if tally.voters.contains(&voter_raw.as_slice().to_vec()) {
@@ -295,6 +299,7 @@ fn delegate_vote<S: Storage, A: Api, Q: Querier>(deps: &mut Extern<S, A, Q>, env
                     deps.storage.set(voter_raw.as_slice(), &serialize(&voter_ballot)?);
                 }
             } else {
+                println!("Creating new ballot");
                 // Create ballot.
                 let new_ballot = Ballot {
                     has_voted: false,
@@ -305,6 +310,9 @@ fn delegate_vote<S: Storage, A: Api, Q: Querier>(deps: &mut Extern<S, A, Q>, env
                 };
                 deps.storage.set(voter_raw.as_slice(), &serialize(&new_ballot)?);
 
+                // Save reference to tally
+                tally.voters.insert(voter_raw.as_slice().to_vec());
+
             } 
             return Ok(tally); 
         }
@@ -312,13 +320,16 @@ fn delegate_vote<S: Storage, A: Api, Q: Querier>(deps: &mut Extern<S, A, Q>, env
 
             let delegate_raw = &deps.api.canonical_address(&delegate)?;
 
-
-            // Keep recursion going
+            // Keep recursion going, check whether current delegate has delegated himself
             if tally.voters.contains(&delegate_raw.as_slice().to_vec()) {
+
                 let delegate_ballot: Ballot = deserialize(&deps.storage.get(&delegate_raw.as_slice()).unwrap())?;
+                println!("delegate vote to known delegate: {}", delegate); 
+
                 return delegate_vote(deps, env, msg, tally, &delegate, vote_value, &delegate_ballot.delegate)
             }
             else {
+                println!("delegate vote to unknown delegate yet: {}", delegate); 
                 return delegate_vote(deps, env, msg, tally, &delegate, vote_value, &None)
             }
             
@@ -520,7 +531,28 @@ mod tests {
 
     #[test]
     fn simple_delegation() {
-        // TODO
+        let mut deps = mock_dependencies(20, &coins(2, "token")); // amount, denom
+
+        let msg = InitMsg { poll : String::from("Is the sky blue?"), duration: STANDARD_DURATION, early_results_allowed: true };
+        let env = mock_env("creator", &coins(2, "token"));
+        let _res = init(&mut deps, env, msg).unwrap();
+
+        // max can vote and delegate to franz
+        let env = mock_env("Max", &coins(2, "token"));
+        let delegate : HumanAddr = HumanAddr("Franz".to_string());
+        let msg = HandleMsg{ vote : None, delegate: Some(delegate)};
+        let _res = handle(&mut deps, env, msg).unwrap();
+
+        // franz can vote and his vote is thus worth 2
+        let env = mock_env("Franz", &coins(2, "token"));
+        let msg = HandleMsg{ vote : Some(true), delegate: None};
+        let _res = handle(&mut deps, env, msg);
+
+        // should increase true tally by 1 only
+        let res = query(&deps, QueryMsg::GetTally {}).unwrap();
+        let value: Tally = from_binary(&res).unwrap();
+        assert_eq!(2, value.yes);
+        assert_eq!(0, value.no);
     }
 
     #[test]
