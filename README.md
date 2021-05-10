@@ -10,7 +10,7 @@ This project came to life during the *Scaling Ethereum* hackathon 2021.
 
 This project started with the goal to connect a neighborhood, creating a place where good deeds can be rewarded, issues discussed and votes be held; for example on allocating budget for a new public garden area and rewarding a neighbor for watching your kids. This governance problem was hard to tackle from scratch initially, which is why for now I focus on the voting aspect, that will lay a good foundation hopefully.
 
-<img src="/home/yann/Documents/quartier/pics/sf.jpg" style="zoom: 15%;" />
+<img src="pics/sf.jpg" style="zoom: 15%;" />
 
 
 
