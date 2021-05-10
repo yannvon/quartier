@@ -17,16 +17,6 @@ use cosmwasm_std::{HumanAddr,};
 // and is also inspired by https://github.com/baedrik/SCRT-sealed-bid-auction/blob/master/src/contract.rs
 
 
-/// storage key for vote state
-/// FIXME why do we distinguis poll and vote in existing code ?
-// TODO
-pub const VOTE_KEY: &[u8] = b"vote";
-pub const POLL_KEY: &[u8] = b"poll";
-
-/// pad handle responses and log attributes to blocks of 256 bytes to prevent leaking info based on
-/// response size
-// TODO
-pub const BLOCK_SIZE: usize = 256;
 
 ////////////////////////////////////// Init ///////////////////////////////////////
 /// Returns InitResult
@@ -512,24 +502,24 @@ mod tests {
 
     #[test]
     fn simple_delegation() {
-        let mut deps = mock_dependencies(20, &coins(2, "token")); // amount, denom
+        let mut deps = mock_dependencies(20, &coins(2, "token"));
 
         let msg = InitMsg { poll : String::from("Is the sky blue?"), duration: STANDARD_DURATION, early_results_allowed: true };
         let env = mock_env("creator", &coins(2, "token"));
         let _res = init(&mut deps, env, msg).unwrap();
 
-        // max can vote and delegate to franz
+        // Max can vote and delegate to franz
         let env = mock_env("Max", &coins(2, "token"));
         let delegate : HumanAddr = HumanAddr("John".to_string());
         let msg = HandleMsg{ vote : None, delegate: Some(delegate)};
         let _res = handle(&mut deps, env, msg).unwrap();
 
-        // franz can vote and his vote is thus worth 2
+        // John can vote and his vote is thus worth 2
         let env = mock_env("John", &coins(2, "token"));
         let msg = HandleMsg{ vote : Some(true), delegate: None};
         let _res = handle(&mut deps, env, msg);
 
-        // should increase true tally by 1 only
+        // Should increase tally by 2
         let res = query(&deps, QueryMsg::GetTally {}).unwrap();
         let value: Tally = from_binary(&res).unwrap();
         assert_eq!(2, value.yes);
@@ -539,7 +529,7 @@ mod tests {
     #[test]
     fn delegation_to_already_voted() {
 
-        let mut deps = mock_dependencies(20, &coins(2, "token")); // amount, denom
+        let mut deps = mock_dependencies(20, &coins(2, "token"));
 
         let msg = InitMsg { poll : String::from("Should we buy new benches?"), duration: STANDARD_DURATION, early_results_allowed: true };
         let env = mock_env("creator", &coins(2, "token"));
@@ -550,7 +540,7 @@ mod tests {
         let msg = HandleMsg{ vote : Some(true), delegate: None};
         let _res = handle(&mut deps, env, msg);
   
-        // Max can vote, he delegates to John, and thus Franz's vote should count twice
+        // Max can vote, he delegates to John, and thus John's vote should count twice
         let env = mock_env("Max", &coins(35, "token"));
         let delegate : HumanAddr = HumanAddr("John".to_string());
         let msg = HandleMsg{ vote : None, delegate: Some(delegate)};
